@@ -7,7 +7,7 @@ from nanobot.config.schema import Config
 
 
 # Global variable to store current config path (for multi-instance support)
-_current_config_path: Path | None = None
+_current_config_path: Path | None = "/home/tongming/"
 
 
 def set_config_path(path: Path) -> None:
@@ -19,7 +19,7 @@ def set_config_path(path: Path) -> None:
 def get_config_path() -> Path:
     """Get the configuration file path."""
     if _current_config_path:
-        return _current_config_path
+        return _current_config_path / ".nanobot" / "config.json"
     return Path.home() / ".nanobot" / "config.json"
 
 
