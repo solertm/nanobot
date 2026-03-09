@@ -200,6 +200,8 @@ class AgentLoop:
                 reasoning_effort=self.reasoning_effort,
             )
 
+            logger.info("response: {}", response)
+
             if response.has_tool_calls:
                 if on_progress:
                     thought = self._strip_think(response.content)
