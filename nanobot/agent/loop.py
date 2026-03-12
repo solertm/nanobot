@@ -53,7 +53,7 @@ class AgentLoop:
         workspace: Path,
         model: str | None = None,
         max_iterations: int = 40,
-        temperature: float = 0.1,
+        temperature: float = 1.0,
         max_tokens: int = 4096,
         memory_window: int = 100,
         reasoning_effort: str | None = None,
