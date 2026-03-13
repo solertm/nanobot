@@ -6,6 +6,8 @@ import os
 import re
 from typing import Any
 from urllib.parse import urlparse
+import http.client
+import requests
 
 import httpx
 from loguru import logger
@@ -179,3 +181,176 @@ class WebFetchTool(Tool):
         text = re.sub(r'</(p|div|section|article)>', '\n\n', text, flags=re.I)
         text = re.sub(r'<(br|hr)\s*/?>', '\n', text, flags=re.I)
         return _normalize(_strip_tags(text))
+
+class WebSearchForMetasoTool(Tool):
+    """Search the web using Metaso Search API."""
+
+    name = "web_search"
+    description = "Search the web. Returns titles, URLs, and snippets."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Search query"},
+            "count": {"type": "integer", "description": "Results (1-10)", "minimum": 1, "maximum": 10}
+        },
+        "required": ["query"]
+    }
+
+    def __init__(self, api_key: str | None = None, max_results: int = 5, proxy: str | None = None):
+        self._init_api_key = api_key
+        self.max_results = max_results
+        self.proxy = proxy
+
+    @property
+    def api_key(self) -> str:
+        """Metaso API key at call time so env/config changes are picked up."""
+        return self._init_api_key or os.environ.get("BRAVE_API_KEY", "")
+
+    async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
+        if not self.api_key:
+            return (
+                "Error: Metaso Search API key not configured. Set it in "
+                "~/.nanobot/config.json under tools.web.search.apiKey "
+                "(or export Metaso_API_KEY), then restart the gateway."
+            )
+
+        try:
+            n = min(max(count or self.max_results, 1), 10)
+            logger.debug("WebSearch: {}", "proxy enabled" if self.proxy else "direct connection")
+            
+            conn = http.client.HTTPSConnection("metaso.cn")
+            payload = json.dumps({"q": query, "scope": "webpage", "includeSummary": False, "size": n, "includeRawContent": False, "conciseSnippet": False})
+            headers = {
+                'Authorization': f'Bearer {self.api_key}',
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            }
+            conn.request("POST", "/api/v1/search", payload, headers)
+            res = conn.getresponse()
+            data = res.read()
+            raw = data.decode("utf-8", errors="replace")
+            status = getattr(res, "status", None)
+            if status and status >= 400:
+                logger.error("WebSearch HTTP error {}: {}", status, raw[:5000])
+                return f"Error: HTTP {status}"
+
+            try:
+                payload_json = json.loads(raw)
+            except json.JSONDecodeError:
+                logger.error("WebSearch invalid JSON: {}", raw[:5000])
+                return "Error: Invalid JSON response"
+
+            results = (
+                payload_json.get("webpages")
+                or payload_json.get("web", {}).get("results")
+                or payload_json.get("data", {}).get("webpages")
+                or payload_json.get("data", {}).get("web", {}).get("results")
+                or []
+            )
+            if not isinstance(results, list):
+                results = []
+            results = results[:n]
+            logger.debug("WebSearch results: {}", results)
+            if not results:
+                return f"No results for: {query}"
+
+            lines = [f"Results for: {query}\n"]
+            for i, item in enumerate(results, 1):
+                if not isinstance(item, dict):
+                    continue
+                title = item.get("title") or item.get("name") or ""
+                url = item.get("url") or item.get("link") or ""
+                lines.append(f"{i}. {title}\n   {url}")
+                desc = item.get("description") or item.get("snippet") or item.get("summary")
+                if desc:
+                    lines.append(f"   {desc}")
+            return "\n".join(lines)
+        except httpx.ProxyError as e:
+            logger.error("WebSearch proxy error: {}", e)
+            return f"Proxy error: {e}"
+        except Exception as e:
+            logger.error("WebSearch error: {}", e)
+            return f"Error: {e}"
+
+
+class WebSearchForExaTool(Tool):
+    """Search the web using Exa Search API."""
+
+    name = "web_search"
+    description = "Search the web. Returns titles, URLs, and snippets."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Search query"},
+            "count": {"type": "integer", "description": "Results (1-10)", "minimum": 1, "maximum": 10}
+        },
+        "required": ["query"]
+    }
+
+    def __init__(self, api_key: str | None = None, max_results: int = 5, proxy: str | None = None):
+        self._init_api_key = api_key
+        self.max_results = max_results
+        self.proxy = proxy
+
+    @property
+    def api_key(self) -> str:
+        """Exa API key at call time so env/config changes are picked up."""
+        return self._init_api_key or os.environ.get("BRAVE_API_KEY", "")
+
+    async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
+        if not self.api_key:
+            return (
+                "Error: Exa Search API key not configured. Set it in "
+                "~/.nanobot/config.json under tools.web.search.apiKey "
+                "(or export Exa_API_KEY), then restart the gateway."
+            )
+
+        try:
+            n = min(max(count or self.max_results, 1), 10)
+            
+            # 1. 设置请求头（对应curl中的-H参数）
+            headers = {
+                "x-api-key": self.api_key,
+                "Content-Type": "application/json"
+            }
+
+            # 2. 设置请求体（对应curl中的-d参数）
+            payload = {
+                "query": query,
+                "type": "auto",
+                "num_results": n,
+                "contents": {
+                    "text": {
+                        "max_characters": 20000
+                    }
+                }
+            }
+             # 3. 发送POST请求（对应curl中的-X POST）
+            response = requests.post(
+                url="https://api.exa.ai/search",
+                headers=headers,
+                json=payload  # requests会自动将字典序列化为JSON，并设置正确的Content-Type
+            )
+
+            # 4. 检查请求是否成功
+            response.raise_for_status()  #
+            logger.debug("WebSearch response: {}", response)
+
+            result = response.json()
+            logger.debug("WebSearch response json: {}", result)
+            results = result.get("results", [])[:n]
+            if not results:
+                return f"No results for: {query}"
+
+            lines = [f"Results for: {query}\n"]
+            for i, item in enumerate(results, 1):
+                lines.append(f"{i}. {item.get('title', '')}\n   {item.get('url', '')}")
+                if desc := item.get("description"):
+                    lines.append(f"   {desc}")
+            return "\n".join(lines)
+        except httpx.ProxyError as e:
+            logger.error("WebSearch proxy error: {}", e)
+            return f"Proxy error: {e}"
+        except Exception as e:
+            logger.error("WebSearch error: {}", e)
+            return f"Error: {e}"

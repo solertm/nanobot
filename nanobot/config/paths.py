@@ -7,7 +7,7 @@ from pathlib import Path
 from nanobot.config.loader import get_config_path
 from nanobot.utils.helpers import ensure_dir
 
-_default_workspace_path_prefix: Path = Path("/home/tongming/")
+_default_workspace_path_prefix: Path = Path("/Users/bytedance_1/trae_cn/nanobot_record/")
 
 
 def get_data_dir() -> Path:
